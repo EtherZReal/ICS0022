@@ -2,27 +2,34 @@
 #include "auth.h"
 
 int main() {
-    printf("=== Password Manager ===\n");
-    create_master_password();
-    return 0;
-}
-
-/*
-int main() {
     int choice;
 
+    while (1) {
     printf("=== Password Manager ===\n");
-    printf("1. Login\n");
-    printf("2. Exit\n");
+    printf("1. Register\n");
+    printf("2. Login\n");
+    printf("3. Exit\n");
     printf("Choice: ");
 
     scanf("%d", &choice);
 
-    if (choice == 1) {
-        printf("Login selected\n");
-    } else {
-        printf("Goodbye\n");
+            switch (choice) {
+            case 1:
+                create_user();
+                break;
+
+            case 2:
+                login_user();
+                break;
+
+            case 3:
+                printf("Goodbye.\n");
+                return 0;
+
+            default:
+                printf("Invalid option.\n");
+        }
     }
 
     return 0;
-} */
+}

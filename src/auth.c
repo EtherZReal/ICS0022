@@ -1,11 +1,10 @@
 #include <stdio.h>
 #include "auth.h"
 
-int create_master_password() {
-    printf("Test_Auth\n");
+int create_user() {
     return 0;
 }
 
-int verify_master_password() {
+int login_user() {
     return 0;
 }
