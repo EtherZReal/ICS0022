@@ -1,5 +1,13 @@
 #include <stdio.h>
+#include "auth.h"
 
+int main() {
+    printf("=== Password Manager ===\n");
+    create_master_password();
+    return 0;
+}
+
+/*
 int main() {
     int choice;
 
@@ -17,4 +25,4 @@ int main() {
     }
 
     return 0;
-}
+} */
