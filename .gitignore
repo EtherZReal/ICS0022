@@ -1,0 +1,7 @@
+#Build artifacts
+password_manager
+*.o
+
+# Planned vault files, not implemented yet
+data/master.dat
+data/vault.dat
