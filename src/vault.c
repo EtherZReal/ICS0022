@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "vault.h"
 
 void add_credential(const char *username) {
@@ -22,7 +23,7 @@ void add_credential(const char *username) {
         return;
     }
 
-    fprintf(file, "%s %s %s\n", site, vault_user, password);
+    fprintf(file, "%s %s %s %s\n", username, site, vault_user, password);
 
     fclose(file);
 
@@ -30,6 +31,7 @@ void add_credential(const char *username) {
 }
 
 void view_credentials(const char *username) {
+    char owner[100];
     char site[100];
     char stored_user[100];
     char password[100];
@@ -43,14 +45,17 @@ void view_credentials(const char *username) {
 
     printf("\nStored credentials:\n");
 
-    while (fscanf(file, "%99s %99s %99s",
+    while (fscanf(file, "%99s %99s %99s %99s",
+                  owner,
                   site,
                   stored_user,
-                  password) == 3) {
+                  password) == 4) {
 
-        printf("Site: %s | Username: %s\n",
-               site,
-               stored_user);
+         if (strcmp(owner, username) == 0) {
+            printf("Site: %s | Username: %s\n",
+                   site,
+                   stored_user);
+        }
     }
 
     fclose(file);
