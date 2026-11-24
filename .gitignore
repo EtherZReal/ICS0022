@@ -2,6 +2,19 @@
 password_manager
 *.o
 
-# Planned vault files, not implemented yet
+# User and vault data
+users.txt
+vault.txt
+vault_*.txt
+
+# Planned vault files
 data/master.dat
 data/vault.dat
+
+# Logs 
+*.log
+
+# Editor files
+.vscode/
+*.swp
+*~
