@@ -61,6 +61,133 @@ void view_credentials(const char *username) {
     fclose(file);
 }
 
+void update_credential(const char *username) {
+
+    char owner[100];
+    char site[100];
+    char stored_user[100];
+    char password[100];
+
+    char target_site[100];
+    char new_user[100];
+    char new_password[100];
+
+    int found = 0;
+
+    printf("Site to update: ");
+    scanf("%99s", target_site);
+
+    printf("New username: ");
+    scanf("%99s", new_user);
+
+    printf("New password: ");
+    scanf("%99s", new_password);
+
+    FILE *file = fopen("vault.txt", "r");
+    FILE *temp = fopen("temp.txt", "w");
+
+    if (file == NULL || temp == NULL) {
+        printf("Error accessing vault.\n");
+        return;
+    }
+
+    while (fscanf(file,
+                  "%99s %99s %99s %99s",
+                  owner,
+                  site,
+                  stored_user,
+                  password) == 4) {
+
+        if (strcmp(owner, username) == 0 &&
+            strcmp(site, target_site) == 0) {
+
+            fprintf(temp,
+                    "%s %s %s %s\n",
+                    owner,
+                    site,
+                    new_user,
+                    new_password);
+
+            found = 1;
+        }
+        else {
+
+            fprintf(temp,
+                    "%s %s %s %s\n",
+                    owner,
+                    site,
+                    stored_user,
+                    password);
+        }
+    }
+    fclose(file);
+    fclose(temp);
+
+    remove("vault.txt");
+    rename("temp.txt", "vault.txt");
+
+    if (found)
+        printf("Credential updated.\n");
+    else
+        printf("Credential not found.\n");
+}
+
+    void delete_credential(const char *username) {
+    char owner[100];
+    char site[100];
+    char stored_user[100];
+    char password[100];
+
+    char target_site[100];
+
+    int found = 0;
+
+    printf("Site to delete: ");
+    scanf("%99s", target_site);
+
+    FILE *file = fopen("vault.txt", "r");
+    FILE *temp = fopen("temp.txt", "w");
+
+    if (file == NULL || temp == NULL) {
+        printf("Error accessing vault.\n");
+        return;
+    }
+
+    while (fscanf(file,
+                  "%99s %99s %99s %99s",
+                  owner,
+                  site,
+                  stored_user,
+                  password) == 4) {
+
+        if (strcmp(owner, username) == 0 &&
+            strcmp(site, target_site) == 0) {
+
+            found = 1;
+        }
+        else {
+
+            fprintf(temp,
+                    "%s %s %s %s\n",
+                    owner,
+                    site,
+                    stored_user,
+                    password);
+        }
+    }
+
+    fclose(file);
+    fclose(temp);
+
+    remove("vault.txt");
+    rename("temp.txt", "vault.txt");
+
+    if (found)
+        printf("Credential deleted.\n");
+    else
+        printf("Credential not found.\n");
+}
+
 void vault_menu(const char *username) {
     int choice;
 
@@ -69,7 +196,9 @@ void vault_menu(const char *username) {
         printf("\n=== Vault ===\n");
         printf("1. Add Credential\n");
         printf("2. View Credentials\n");
-        printf("3. Logout\n");
+        printf("3. Update Credential\n");
+        printf("4. Delete Credential\n");
+        printf("5. Logout\n");
         printf("Choice: ");
 
         scanf("%d", &choice);
@@ -85,6 +214,14 @@ void vault_menu(const char *username) {
                 break;
 
             case 3:
+                update_credential(username);
+                break;
+
+            case 4:
+                delete_credential(username);
+                break;
+
+            case 5:
                 printf("Logged out.\n");
                 return;
 
