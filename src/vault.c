@@ -249,7 +249,7 @@ void update_credential(const char *username) {
         printf("\n\nCredential not found.\n\n");
 }
 
-void vault_menu(const char *username) {
+void vault_menu(const char *username, const unsigned char *key) {
     int choice;
 
     while (1) {

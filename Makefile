@@ -9,4 +9,4 @@ password_manager:
 	src/crypto.c \
 	src/logging.c \
 	src/utils.c \
-	-o password_manager
+	-o password_manager -lcrypto -lcrypt
