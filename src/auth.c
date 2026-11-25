@@ -15,7 +15,9 @@ int create_user() {
     char stored_hash[100];
 
     printf("Username: ");
-    scanf("%49s", username);
+    if (scanf("%49s", username) != 1) {
+        return 1;
+    }
 
     FILE *file = fopen("users.txt", "r");
 
@@ -29,6 +31,7 @@ int create_user() {
             if (strcmp(username, stored_username) == 0) {
 
                 fclose(file);
+                secure_zero(stored_hash, sizeof(stored_hash));
 
                 printf("\n\nUsername already exists.\n\n");
 
@@ -37,22 +40,26 @@ int create_user() {
         }
 
         fclose(file);
+        secure_zero(stored_hash, sizeof(stored_hash));
     }
 
     printf("Master password: ");
     read_password(password);
 
     hash_password(password, hash);
+    secure_zero(password, sizeof(password));
 
     file = fopen("users.txt", "a");
 
     if (file == NULL) {
+        secure_zero(hash, sizeof(hash));
         printf("\n\nError opening file.\n\n");
         return 1;
     }
 
     fprintf(file, "%s %s\n", username, hash);
     fclose(file);
+    secure_zero(hash, sizeof(hash));
 
     printf("\n\nUser created successfully.\n\n");
 
@@ -77,16 +84,20 @@ int login_user() {
     char stored_hash[100];
 
     printf("Username: ");
-    scanf("%49s", username);
+    if (scanf("%49s", username) != 1) {
+        return 1;
+    }
 
     printf("Password: ");
     read_password(password);
 
     hash_password(password, hash);
+    secure_zero(password, sizeof(password));
     
     FILE *file = fopen("users.txt", "r");
 
     if (file == NULL) {
+        secure_zero(hash, sizeof(hash));
         printf("\n\nNo users found.\n\n");
         return 1;
     }
@@ -99,6 +110,9 @@ int login_user() {
             strcmp(hash, stored_hash) == 0) {
 
             fclose(file);
+            secure_zero(hash, sizeof(hash));
+            secure_zero(stored_hash, sizeof(stored_hash));
+
             printf("\n\nLogin successful!\n\n");
 
             char log_message[256];
@@ -116,6 +130,9 @@ int login_user() {
     }
 
     fclose(file);
+    secure_zero(hash, sizeof(hash));
+    secure_zero(stored_hash, sizeof(stored_hash));
+
     printf("\n\nLogin failed.\n\n");
 
     char log_message[256];

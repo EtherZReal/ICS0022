@@ -10,10 +10,14 @@ void add_credential(const char *username) {
     char password[100];
 
     printf("Site: ");
-    scanf("%99s", site);
+    if (scanf("%99s", site) != 1) {
+        return;
+    }
 
     printf("Username: ");
-    scanf("%99s", vault_user);
+    if (scanf("%99s", vault_user) != 1) {
+        return;
+    }
 
     printf("Password: ");
     read_password(password);
@@ -21,13 +25,14 @@ void add_credential(const char *username) {
     FILE *file = fopen("vault.txt", "a");
 
     if (file == NULL) {
+        secure_zero(password, sizeof(password));
         printf("Error opening vault.\n\n");
         return;
     }
 
     fprintf(file, "%s %s %s %s\n", username, site, vault_user, password);
-
     fclose(file);
+    secure_zero(password, sizeof(password));
 
     printf("\n\nCredential saved.\n\n");
 
@@ -70,6 +75,7 @@ void view_credentials(const char *username) {
     }
 
     fclose(file);
+    secure_zero(password, sizeof(password));
 }
 
 void update_credential(const char *username) {
@@ -86,10 +92,14 @@ void update_credential(const char *username) {
     int found = 0;
 
     printf("Site to update: ");
-    scanf("%99s", target_site);
+    if (scanf("%99s", target_site) != 1) {
+        return;
+    }
 
     printf("New username: ");
-    scanf("%99s", new_user);
+    if (scanf("%99s", new_user) != 1) {
+        return;
+    }
 
     printf("New password: ");
     read_password(new_password);
@@ -98,6 +108,12 @@ void update_credential(const char *username) {
     FILE *temp = fopen("temp.txt", "w");
 
     if (file == NULL || temp == NULL) {
+        if (file != NULL) fclose(file);
+        if (temp != NULL) {
+            fclose(temp);
+            remove("temp.txt");
+        }
+        secure_zero(new_password, sizeof(new_password));
         printf("\n\nError accessing vault.\n\n");
         return;
     }
@@ -134,11 +150,15 @@ void update_credential(const char *username) {
     fclose(file);
     fclose(temp);
 
+    secure_zero(password, sizeof(password));
+    secure_zero(new_password, sizeof(new_password));
+
     remove("vault.txt");
     rename("temp.txt", "vault.txt");
 
     if (found){
         printf("\n\nCredential updated.\n\n");
+
         char log_message[256];
 
         snprintf(log_message,
@@ -164,12 +184,19 @@ void update_credential(const char *username) {
     int found = 0;
 
     printf("Site to delete: ");
-    scanf("%99s", target_site);
+    if (scanf("%99s", target_site) != 1) {
+        return;
+    }
 
     FILE *file = fopen("vault.txt", "r");
     FILE *temp = fopen("temp.txt", "w");
 
     if (file == NULL || temp == NULL) {
+        if (file != NULL) fclose(file);
+        if (temp != NULL) {
+            fclose(temp);
+            remove("temp.txt");
+        }
         printf("\n\nError accessing vault.\n\n");
         return;
     }
@@ -199,6 +226,8 @@ void update_credential(const char *username) {
 
     fclose(file);
     fclose(temp);
+
+    secure_zero(password, sizeof(password));
 
     remove("vault.txt");
     rename("temp.txt", "vault.txt");
@@ -233,7 +262,13 @@ void vault_menu(const char *username) {
         printf("5. Logout\n");
         printf("Choice: ");
 
-        scanf("%d", &choice);
+        if (scanf("%d", &choice) != 1) {
+            int ch;
+            while ((ch = getchar()) != '\n' && ch != EOF) {
+            }
+            printf("\n\nInvalid option.\n\n");
+            continue;
+        }
 
         switch (choice) {
 
