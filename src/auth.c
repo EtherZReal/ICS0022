@@ -2,16 +2,20 @@
 #include <string.h>
 #include "auth.h"
 #include "vault.h"
+#include "crypto.h"
 
 int create_user() {
     char username[50];
     char password[100];
+    char hash[100];
 
     printf("Username: ");
     scanf("%49s", username);
 
     printf("Master password: ");
     scanf("%99s", password);
+
+    hash_password(password, hash);
 
     FILE *file = fopen("users.txt", "a");
 
@@ -20,7 +24,7 @@ int create_user() {
         return 1;
     }
 
-    fprintf(file, "%s %s\n", username, password);
+    fprintf(file, "%s %s\n", username, hash);
     fclose(file);
 
     printf("User created successfully.\n");
@@ -30,9 +34,10 @@ int create_user() {
 int login_user() {
     char username[50];
     char password[100];
+    char hash[100];
 
     char stored_username[50];
-    char stored_password[100];
+    char stored_hash[100];
 
     printf("Username: ");
     scanf("%49s", username);
@@ -40,6 +45,8 @@ int login_user() {
     printf("Password: ");
     scanf("%99s", password);
 
+    hash_password(password, hash);
+    
     FILE *file = fopen("users.txt", "r");
 
     if (file == NULL) {
@@ -49,10 +56,10 @@ int login_user() {
 
     while (fscanf(file, "%49s %99s",
                   stored_username,
-                  stored_password) == 2) {
+                  stored_hash) == 2) {
 
         if (strcmp(username, stored_username) == 0 &&
-            strcmp(password, stored_password) == 0) {
+            strcmp(hash, stored_hash) == 0) {
 
             fclose(file);
             printf("Login successful!\n");
