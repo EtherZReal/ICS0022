@@ -7,4 +7,6 @@ password_manager:
 	src/auth.c \
 	src/vault.c \
 	src/crypto.c \
+	src/logging.c \
+	src/utils.c \
 	-o password_manager

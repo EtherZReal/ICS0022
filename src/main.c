@@ -23,11 +23,11 @@ int main() {
                 break;
 
             case 3:
-                printf("Goodbye.\n");
+                printf("\n\nGoodbye.\n");
                 return 0;
 
             default:
-                printf("Invalid option.\n");
+                printf("\n\nInvalid option.\n");
         }
     }
 

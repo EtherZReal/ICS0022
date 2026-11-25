@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "vault.h"
+#include "logging.h"
+#include "utils.h"
 
 void add_credential(const char *username) {
     char site[100];
@@ -14,7 +16,7 @@ void add_credential(const char *username) {
     scanf("%99s", vault_user);
 
     printf("Password: ");
-    scanf("%99s", password);
+    read_password(password);
 
     FILE *file = fopen("vault.txt", "a");
 
@@ -27,7 +29,16 @@ void add_credential(const char *username) {
 
     fclose(file);
 
-    printf("Credential saved.\n\n");
+    printf("\n\nCredential saved.\n\n");
+
+    char log_message[256];
+
+    snprintf(log_message,
+         sizeof(log_message),
+         "ADD_CREDENTIAL %s",
+         username);
+
+    log_event(log_message);
 }
 
 void view_credentials(const char *username) {
@@ -39,7 +50,7 @@ void view_credentials(const char *username) {
     FILE *file = fopen("vault.txt", "r");
 
     if (file == NULL) {
-        printf("Vault is empty.\n\n");
+        printf("\n\nVault is empty.\n\n");
         return;
     }
 
@@ -81,13 +92,13 @@ void update_credential(const char *username) {
     scanf("%99s", new_user);
 
     printf("New password: ");
-    scanf("%99s", new_password);
+    read_password(new_password);
 
     FILE *file = fopen("vault.txt", "r");
     FILE *temp = fopen("temp.txt", "w");
 
     if (file == NULL || temp == NULL) {
-        printf("Error accessing vault.\n\n");
+        printf("\n\nError accessing vault.\n\n");
         return;
     }
 
@@ -126,10 +137,20 @@ void update_credential(const char *username) {
     remove("vault.txt");
     rename("temp.txt", "vault.txt");
 
-    if (found)
-        printf("Credential updated.\n\n");
+    if (found){
+        printf("\n\nCredential updated.\n\n");
+        char log_message[256];
+
+        snprintf(log_message,
+             sizeof(log_message),
+             "UPDATE_CREDENTIAL %s %s",
+             username,
+             target_site);
+
+        log_event(log_message);
+        }
     else
-        printf("Credential not found.\n\n");
+        printf("\n\nCredential not found.\n\n");
 }
 
     void delete_credential(const char *username) {
@@ -149,7 +170,7 @@ void update_credential(const char *username) {
     FILE *temp = fopen("temp.txt", "w");
 
     if (file == NULL || temp == NULL) {
-        printf("Error accessing vault.\n");
+        printf("\n\nError accessing vault.\n\n");
         return;
     }
 
@@ -182,10 +203,21 @@ void update_credential(const char *username) {
     remove("vault.txt");
     rename("temp.txt", "vault.txt");
 
-    if (found)
-        printf("Credential deleted.\n\n");
+    if (found){
+        printf("\n\nCredential deleted.\n\n");
+
+        char log_message[256];
+
+        snprintf(log_message,
+             sizeof(log_message),
+             "DELETE_CREDENTIAL %s %s",
+             username,
+             target_site);
+
+        log_event(log_message);
+    }
     else
-        printf("Credential not found.\n\n");
+        printf("\n\nCredential not found.\n\n");
 }
 
 void vault_menu(const char *username) {
@@ -222,11 +254,11 @@ void vault_menu(const char *username) {
                 break;
 
             case 5:
-                printf("Logged out.\n\n");
+                printf("\n\nLogged out.\n\n");
                 return;
 
             default:
-                printf("Invalid option.\n\n");
+                printf("\n\nInvalid option.\n\n");
         }
     }
 }
