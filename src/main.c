@@ -5,7 +5,7 @@ int main() {
     int choice;
 
     while (1) {
-    printf("=== Password Manager ===\n");
+    printf("\n=== Password Manager ===\n");
     printf("1. Register\n");
     printf("2. Login\n");
     printf("3. Exit\n");

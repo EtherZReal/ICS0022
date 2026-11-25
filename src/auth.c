@@ -1,33 +1,78 @@
 #include <stdio.h>
+#include <termios.h>
+#include <unistd.h>
 #include <string.h>
 #include "auth.h"
 #include "vault.h"
 #include "crypto.h"
+
+void read_password(char *password, int size)
+{
+    struct termios oldt, newt;
+
+    tcgetattr(STDIN_FILENO, &oldt);
+
+    newt = oldt;
+    newt.c_lflag &= ~ECHO;
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    scanf("%99s", password);
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+
+    printf("\n");
+}
 
 int create_user() {
     char username[50];
     char password[100];
     char hash[100];
 
+    char stored_username[50];
+    char stored_hash[100];
+
     printf("Username: ");
     scanf("%49s", username);
 
+    FILE *file = fopen("users.txt", "r");
+
+    if (file != NULL) {
+
+        while (fscanf(file,
+                      "%49s %99s",
+                      stored_username,
+                      stored_hash) == 2) {
+
+            if (strcmp(username, stored_username) == 0) {
+
+                fclose(file);
+
+                printf("Username already exists.\n");
+
+                return 1;
+            }
+        }
+
+        fclose(file);
+    }
+
     printf("Master password: ");
-    scanf("%99s", password);
+    read_password(password, sizeof(password));
 
     hash_password(password, hash);
 
-    FILE *file = fopen("users.txt", "a");
+    file = fopen("users.txt", "a");
 
     if (file == NULL) {
-        printf("Error opening file.\n");
+        printf("Error opening file.\n\n");
         return 1;
     }
 
     fprintf(file, "%s %s\n", username, hash);
     fclose(file);
 
-    printf("User created successfully.\n");
+    printf("User created successfully.\n\n");
     return 0;
 }
 
@@ -43,7 +88,7 @@ int login_user() {
     scanf("%49s", username);
 
     printf("Password: ");
-    scanf("%99s", password);
+    read_password(password, sizeof(password));
 
     hash_password(password, hash);
     
@@ -62,7 +107,7 @@ int login_user() {
             strcmp(hash, stored_hash) == 0) {
 
             fclose(file);
-            printf("Login successful!\n");
+            printf("Login successful!\n\n");
             vault_menu(username);
             return 0;
         }
