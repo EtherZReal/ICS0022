@@ -37,15 +37,28 @@ static int find_user(const char *username, char *hash_out, char *salt_out)
     return found;
 }
 
+int auth_verify_password(const char *username, const char *password)
+{
+    char hash[CRYPTO_BCRYPT_HASH_LEN];
+
+    if (!find_user(username, hash, NULL)) {
+        return 0;
+    }
+    return crypto_verify_password(password, hash);
+}
+
 int create_user() {
     char username[50];
     char password[100];
+    char confirm[100];
     char hash[CRYPTO_BCRYPT_HASH_LEN];
     unsigned char salt[CRYPTO_SALT_LEN];
     char salt_hex[CRYPTO_SALT_HEX_LEN];
 
     printf("Username: ");
-    if (scanf("%49s", username) != 1) {
+    if (read_line(username, sizeof(username)) != 0 ||
+        !is_valid_account_name(username)) {
+        printf("\n\nUsername must be 3-32 characters: letters, digits, '.', '_' or '-'.\n\n");
         return 1;
     }
 
@@ -55,13 +68,24 @@ int create_user() {
     }
 
     printf("Master password: ");
-    read_password(password);
+    int rc1 = read_password(password, sizeof(password));
+    printf("Confirm password: ");
+    int rc2 = read_password(confirm, sizeof(confirm));
 
-    size_t len = strlen(password);
-    if (len < MIN_PASSWORD_LEN || len > CRYPTO_MAX_PASSWORD_LEN) {
+    if (rc1 != 0 ||
+        !is_valid_text(password, MIN_PASSWORD_LEN, CRYPTO_MAX_PASSWORD_LEN)) {
         secure_zero(password, sizeof(password));
+        secure_zero(confirm, sizeof(confirm));
         printf("\n\nPassword must be %d-%d characters.\n\n",
                MIN_PASSWORD_LEN, CRYPTO_MAX_PASSWORD_LEN);
+        return 1;
+    }
+
+    int same = (rc2 == 0 && strcmp(password, confirm) == 0);
+    secure_zero(confirm, sizeof(confirm));
+    if (!same) {
+        secure_zero(password, sizeof(password));
+        printf("\n\nPasswords do not match.\n\n");
         return 1;
     }
 
@@ -88,12 +112,7 @@ int create_user() {
     printf("\n\nUser created successfully.\n\n");
 
     char log_message[256];
-
-    snprintf(log_message,
-         sizeof(log_message),
-         "USER_CREATED %s",
-         username);
-
+    snprintf(log_message, sizeof(log_message), "USER_CREATED %s", username);
     log_event(log_message);
 
     return 0;
@@ -110,14 +129,17 @@ int login_user() {
     int ok = 0;
 
     printf("Username: ");
-    if (scanf("%49s", username) != 1) {
+    if (read_line(username, sizeof(username)) != 0) {
+        printf("\n\nLogin failed.\n\n");
         return 1;
     }
 
     printf("Password: ");
-    read_password(password);
+    read_password(password, sizeof(password));
 
-    if (find_user(username, stored_hash, stored_salt)) {
+    int valid_name = is_valid_account_name(username);
+
+    if (valid_name && find_user(username, stored_hash, stored_salt)) {
         if (crypto_verify_password(password, stored_hash)) {
             /* Password is right: now derive the vault key from it. */
             if (crypto_hex_decode(stored_salt, salt, sizeof(salt), &salt_len) == 0 &&
@@ -148,7 +170,8 @@ int login_user() {
     printf("\n\nLogin failed.\n\n");
 
     char log_message[256];
-    snprintf(log_message, sizeof(log_message), "LOGIN_FAILED %s", username);
+    snprintf(log_message, sizeof(log_message), "LOGIN_FAILED %s",
+             valid_name ? username : "(invalid_name)");
     log_event(log_message);
 
     return 1;

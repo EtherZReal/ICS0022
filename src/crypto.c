@@ -80,7 +80,7 @@ int crypto_hash_password(const char *password, char *out, size_t out_size)
     if (password == NULL || out == NULL || out_size < CRYPTO_BCRYPT_HASH_LEN) {
         return -1;
     }
-    /* Reject rather than silently truncate at 72 bytes. */
+    
     if (strlen(password) > CRYPTO_MAX_PASSWORD_LEN) {
         return -1;
     }
@@ -92,7 +92,7 @@ int crypto_hash_password(const char *password, char *out, size_t out_size)
         goto done;
     }
 
-    data = calloc(1, sizeof(*data));   /* ~32 KB, too big for the stack */
+    data = calloc(1, sizeof(*data));
     if (data == NULL) {
         goto done;
     }
@@ -102,7 +102,7 @@ int crypto_hash_password(const char *password, char *out, size_t out_size)
         strncmp(hash, "$2b$", 4) != 0) {
         goto done;
     }
-    memcpy(out, hash, 61);             /* 60 chars + NUL */
+    memcpy(out, hash, 61);
     rc = 0;
 
 done:
@@ -256,7 +256,7 @@ int crypto_decrypt(const unsigned char key[CRYPTO_KEY_LEN],
         EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, GCM_TAG_LEN, tag) != 1) {
         goto done;
     }
-    /* Final returns <= 0 when the tag does not verify. */
+    
     if (EVP_DecryptFinal_ex(ctx, (unsigned char *)out + len, &flen) <= 0) {
         goto done;
     }
@@ -266,7 +266,7 @@ int crypto_decrypt(const unsigned char key[CRYPTO_KEY_LEN],
 
 done:
     if (rc != 0) {
-        crypto_wipe(out, out_size);    /* never leave unauthenticated plaintext */
+        crypto_wipe(out, out_size);
     }
     EVP_CIPHER_CTX_free(ctx);
     crypto_wipe(blob, sizeof(blob));

@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <sys/stat.h>
 #include "auth.h"
+#include "utils.h"
 
-int main() {
-    int choice;
+int main(void) {
+    umask(077);
 
     while (1) {
     printf("\n=== Password Manager ===\n");
@@ -11,22 +13,16 @@ int main() {
     printf("3. Exit\n");
     printf("Choice: ");
 
-        int result = scanf("%d", &choice);
-        if (result == EOF) {
+        int choice = read_choice();
+
+        if (choice == -2) {
             printf("\n\nGoodbye.\n");
             return 0;
         }
-        if (result != 1) {
-            int ch;
-            while ((ch = getchar()) != '\n' && ch != EOF) {
-            }
-            printf("\n\nInvalid option.\n");
-            continue;
-        }
 
-    switch (choice) {
-        case 1:
-            create_user();
+        switch (choice) {
+            case 1:
+                create_user();
                 break;
 
             case 2:
@@ -38,7 +34,7 @@ int main() {
                 return 0;
 
             default:
-                printf("\n\nInvalid option.\n");
+                printf("\n\nInvalid option.\n\n");
         }
     }
 }
