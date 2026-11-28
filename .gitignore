@@ -1,20 +1,4 @@
-#Build artifacts
-password_manager
-*.o
-
-# User and vault data
-users.txt
-vault.txt
-vault_*.txt
-
-# Planned vault files
-data/master.dat
-data/vault.dat
-
-# Logs 
+build/
+pm
+data/
 *.log
-
-# Editor files
-.vscode/
-*.swp
-*~

@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <termios.h>
 #include <unistd.h>
+
 #include "utils.h"
 
 void secure_zero(void *ptr, size_t len)
@@ -11,6 +13,16 @@ void secure_zero(void *ptr, size_t len)
     while (len--) {
         *p++ = 0;
     }
+}
+
+int secure_lock(void *ptr, size_t len)
+{
+    return mlock(ptr, len) == 0 ? 0 : -1;
+}
+
+void secure_unlock(void *ptr, size_t len)
+{
+    munlock(ptr, len);
 }
 
 int read_line(char *buf, size_t size)

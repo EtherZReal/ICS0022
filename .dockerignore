@@ -1,0 +1,7 @@
+.git
+data
+build
+pm
+*.log
+docs
+tests

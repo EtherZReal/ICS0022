@@ -1,14 +1,16 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
-#include "auth.h"
+
 #include "vault.h"
+#include "auth.h"
+#include "backup.h"
 #include "crypto.h"
 #include "logging.h"
+#include "paths.h"
 #include "utils.h"
 
-#define VAULT_FILE      "vault.txt"
-#define VAULT_TMP       "vault.txt.tmp"
 #define MAX_FIELD       99                    /* longest username/password */
 #define ENC_LEN         CRYPTO_HEX_LEN(MAX_FIELD)
 #define VAULT_LINE_LEN  1024
@@ -17,21 +19,50 @@
 #define REVEAL_SECONDS  10
 #endif
 
+#ifndef SESSION_TIMEOUT_SECONDS
+#define SESSION_TIMEOUT_SECONDS 900           /* 15 minutes of inactivity */
+#endif
+
+/* Every user has their own vault file, vault_<username>.txt, one line per
+ * credential:   site enc_username enc_password
+ * The site name stays readable so entries can be listed; username and
+ * password are AES-256-GCM encrypted (hex) with that user's own key, so a
+ * vault can only be opened with its owner's master password. */
 struct record {
-    char owner[50];
     char site[65];
     char enc_user[ENC_LEN];
     char enc_pw[ENC_LEN];
 };
 
+/* Widths in parse_line() below must match the buffers above. */
 _Static_assert(ENC_LEN == 255, "update the %254s widths in parse_line()");
+
+/* Set when re-authentication fails too many times.
+ * The session is then logged out. */
+static int force_logout = 0;
 
 static int parse_line(const char *line, struct record *r)
 {
-    return sscanf(line, "%49s %64s %254s %254s",
-                  r->owner, r->site, r->enc_user, r->enc_pw) == 4;
+    return sscanf(line, "%64s %254s %254s",
+                  r->site, r->enc_user, r->enc_pw) == 3;
 }
 
+/* The file name comes from the authenticated owner (never from typed input)
+ * and owner names only contain [A-Za-z0-9._-], so it cannot point outside the
+ * data directory. */
+static int vault_name(const char *owner, char *out, size_t size, int tmp)
+{
+    int n = snprintf(out, size, tmp ? "vault_%s.txt.tmp" : "vault_%s.txt", owner);
+    return (n < 0 || (size_t)n >= size) ? -1 : 0;
+}
+
+/* The AAD ties each ciphertext to its owner, site and field.  The owner and
+ * site columns in vault.txt are plain text that anyone with file access could
+ * edit, but the AAD makes such edits fail closed:
+ *   - an entry moved to another owner or site no longer decrypts (wrong AAD,
+ *     and also the wrong user's key);
+ *   - the username and password of an entry can't be swapped.
+ * owner/site only contain [A-Za-z0-9._-], so "|" is an unambiguous separator. */
 static void make_aad(char *aad, size_t size, const char *owner,
                      const char *site, const char *field)
 {
@@ -44,7 +75,6 @@ static int seal_record(const unsigned char *key, const char *owner,
 {
     char aad[256];
 
-    snprintf(r->owner, sizeof(r->owner), "%s", owner);
     snprintf(r->site, sizeof(r->site), "%s", site);
 
     make_aad(aad, sizeof(aad), owner, site, "username");
@@ -60,22 +90,28 @@ static int seal_record(const unsigned char *key, const char *owner,
 
 static void write_record(FILE *f, const struct record *r)
 {
-    fprintf(f, "%s %s %s %s\n", r->owner, r->site, r->enc_user, r->enc_pw);
+    fprintf(f, "%s %s %s\n", r->site, r->enc_user, r->enc_pw);
 }
 
+/* Access control: the owner is always the authenticated user passed down from
+ * login (never typed in), and every lookup matches BOTH owner and site, so a
+ * user can only ever find their own records. */
 static int find_record(const char *owner, const char *site, struct record *out)
 {
     char line[VAULT_LINE_LEN];
+    char name[64];
     struct record r;
     int found = 0;
 
-    FILE *f = fopen(VAULT_FILE, "r");
+    if (vault_name(owner, name, sizeof(name), 0) != 0) {
+        return 0;
+    }
+    FILE *f = data_fopen(name, "r");
     if (f == NULL) {
         return 0;
     }
     while (fgets(line, sizeof(line), f) != NULL) {
-        if (parse_line(line, &r) &&
-            strcmp(r.owner, owner) == 0 && strcmp(r.site, site) == 0) {
+        if (parse_line(line, &r) && strcmp(r.site, site) == 0) {
             if (out != NULL) {
                 *out = r;
             }
@@ -87,26 +123,39 @@ static int find_record(const char *owner, const char *site, struct record *out)
     return found;
 }
 
+/* Copy the vault to a temp file, replacing (replacement != NULL) or dropping
+ * (replacement == NULL) this owner's record for `site`.  Other lines, including
+ * other users' records, are copied through untouched.  The temp file then
+ * replaces the vault in one rename(), so a crash can't leave a half-written
+ * vault, and a backup is taken first.
+ * Returns 1 = changed, 0 = not found, -1 = error. */
 static int rewrite_vault(const char *owner, const char *site,
                          const struct record *replacement)
 {
     char line[VAULT_LINE_LEN];
+    char name[64], tmp_name[72];
     struct record r;
     int found = 0;
 
-    FILE *in = fopen(VAULT_FILE, "r");
+    if (vault_name(owner, name, sizeof(name), 0) != 0 ||
+        vault_name(owner, tmp_name, sizeof(tmp_name), 1) != 0) {
+        return -1;
+    }
+
+    backup_file(name);
+
+    FILE *in = data_fopen(name, "r");
     if (in == NULL) {
         return 0;
     }
-    FILE *out = fopen(VAULT_TMP, "w");
+    FILE *out = data_fopen(tmp_name, "w");
     if (out == NULL) {
         fclose(in);
         return -1;
     }
 
     while (fgets(line, sizeof(line), in) != NULL) {
-        if (parse_line(line, &r) &&
-            strcmp(r.owner, owner) == 0 && strcmp(r.site, site) == 0) {
+        if (parse_line(line, &r) && strcmp(r.site, site) == 0) {
             found = 1;
             if (replacement != NULL) {
                 write_record(out, replacement);
@@ -119,18 +168,18 @@ static int rewrite_vault(const char *owner, const char *site,
 
     if (fflush(out) != 0 || ferror(out)) {
         fclose(out);
-        remove(VAULT_TMP);
+        data_remove(tmp_name);
         return -1;
     }
     fsync(fileno(out));
     fclose(out);
 
     if (!found) {
-        remove(VAULT_TMP);
+        data_remove(tmp_name);
         return 0;
     }
-    if (rename(VAULT_TMP, VAULT_FILE) != 0) {
-        remove(VAULT_TMP);
+    if (data_rename(tmp_name, name) != 0) {
+        data_remove(tmp_name);
         return -1;
     }
     return 1;
@@ -164,12 +213,40 @@ static int prompt_credential(char *user, size_t usize, char *pw, size_t psize)
     return 1;
 }
 
+/* Ask for the master password again before a high-risk action (revealing or
+ * changing a stored password).  Wrong attempts count toward the same lockout
+ * as login, otherwise someone at an unattended terminal could guess the master
+ * password here without limit.  Returns 1 if confirmed. */
+static int reauthenticate(const char *owner)
+{
+    char master[100];
+
+    printf("Re-enter master password: ");
+    int rc = read_password(master, sizeof(master));
+    int result = (rc == 0) ? auth_check_password(owner, master) : AUTH_FAILED;
+    secure_zero(master, sizeof(master));
+
+    if (result == AUTH_OK) {
+        return 1;
+    }
+
+    log_event("REAUTH_FAILED", owner, NULL);
+
+    if (result == AUTH_LOCKED) {
+        printf("\n\nToo many failed attempts. Logging out.\n\n");
+        force_logout = 1;
+    } else {
+        printf("\n\nAuthentication failed.\n\n");
+    }
+    return 0;
+}
+
 static void add_credential(const char *owner, const unsigned char *key)
 {
     char site[100];
     char user[MAX_FIELD + 1];
     char pw[MAX_FIELD + 1];
-    char log_message[256];
+    char name[64];
     struct record r;
     FILE *f;
 
@@ -180,19 +257,26 @@ static void add_credential(const char *owner, const unsigned char *key)
         return;
     }
 
-    if (find_record(owner, site, NULL)) {
+    if (vault_name(owner, name, sizeof(name), 0) != 0) {
+        printf("\n\nError saving credential.\n\n");
+    } else if (find_record(owner, site, NULL)) {
         printf("\n\nThat site already has a credential. Use Update instead.\n\n");
-    } else if (!seal_record(key, owner, site, user, pw, &r) ||
-               (f = fopen(VAULT_FILE, "a")) == NULL) {
+    } else if (!seal_record(key, owner, site, user, pw, &r)) {
         printf("\n\nError saving credential.\n\n");
     } else {
-        write_record(f, &r);
-        fclose(f);
-        printf("\n\nCredential saved.\n\n");
-        snprintf(log_message, sizeof(log_message), "ADD_CREDENTIAL %s %s", owner, site);
-        log_event(log_message);
+        backup_file(name);
+        f = data_fopen(name, "a");
+        if (f == NULL) {
+            printf("\n\nError saving credential.\n\n");
+        } else {
+            write_record(f, &r);
+            fclose(f);
+            printf("\n\nCredential saved.\n\n");
+            log_event("ADD_CREDENTIAL", owner, site);
+        }
     }
 
+    /* plaintext leaves memory as soon as it has been encrypted */
     secure_zero(user, sizeof(user));
     secure_zero(pw, sizeof(pw));
 }
@@ -202,31 +286,30 @@ static void view_credentials(const char *owner, const unsigned char *key)
     char line[VAULT_LINE_LEN];
     char aad[256];
     char user[MAX_FIELD + 1];
+    char name[64];
     struct record r;
     int count = 0;
 
-    FILE *f = fopen(VAULT_FILE, "r");
-    if (f == NULL) {
-        printf("\n\nVault is empty.\n\n");
-        return;
-    }
-
     printf("\nStored credentials:\n");
 
-    while (fgets(line, sizeof(line), f) != NULL) {
-        if (!parse_line(line, &r) || strcmp(r.owner, owner) != 0) {
-            continue;
+    FILE *f = (vault_name(owner, name, sizeof(name), 0) == 0)
+                  ? data_fopen(name, "r") : NULL;
+    if (f != NULL) {
+        while (fgets(line, sizeof(line), f) != NULL) {
+            if (!parse_line(line, &r)) {
+                continue;
+            }
+            make_aad(aad, sizeof(aad), owner, r.site, "username");
+            if (crypto_decrypt(key, aad, r.enc_user, user, sizeof(user)) == 0) {
+                printf("Site: %s | Username: %s | Password: ********\n", r.site, user);
+            } else {
+                printf("Site: %s | (entry could not be read)\n", r.site);
+            }
+            secure_zero(user, sizeof(user));
+            count++;
         }
-        make_aad(aad, sizeof(aad), owner, r.site, "username");
-        if (crypto_decrypt(key, aad, r.enc_user, user, sizeof(user)) == 0) {
-            printf("Site: %s | Username: %s | Password: ********\n", r.site, user);
-        } else {
-            printf("Site: %s | (entry could not be read)\n", r.site);
-        }
-        secure_zero(user, sizeof(user));
-        count++;
+        fclose(f);
     }
-    fclose(f);
 
     if (count == 0) {
         printf("(none)\n");
@@ -236,11 +319,10 @@ static void view_credentials(const char *owner, const unsigned char *key)
 static void reveal_credential(const char *owner, const unsigned char *key)
 {
     char site[65];
-    char master[100];
     char aad[256];
     char user[MAX_FIELD + 1];
     char pw[MAX_FIELD + 1];
-    char log_message[256];
+    char shown[2 * MAX_FIELD + 64];
     struct record r;
 
     if (!prompt_site("Site to reveal: ", site, sizeof(site))) {
@@ -251,15 +333,9 @@ static void reveal_credential(const char *owner, const unsigned char *key)
         return;
     }
 
-    printf("Re-enter master password: ");
-    int rc = read_password(master, sizeof(master));
-    int ok = (rc == 0 && auth_verify_password(owner, master));
-    secure_zero(master, sizeof(master));
-
-    if (!ok) {
-        printf("\n\nAuthentication failed.\n\n");
-        snprintf(log_message, sizeof(log_message), "REAUTH_FAILED %s", owner);
-        log_event(log_message);
+    /* Showing a password is the riskiest action, so ask for the master
+     * password again even though the user is already logged in. */
+    if (!reauthenticate(owner)) {
         return;
     }
 
@@ -271,16 +347,25 @@ static void reveal_credential(const char *owner, const unsigned char *key)
     if (!ok_u || !ok_p) {
         printf("\n\nCould not read credential.\n\n");
     } else {
-        printf("\nUsername: %s\n", user);
-        printf("Password: %s\n", pw);
+        /* Written straight to the terminal from a local buffer that is wiped
+         * right after, so no copy stays behind in stdio's output buffer. */
+        int len = snprintf(shown, sizeof(shown),
+                           "\nUsername: %s\nPassword: %s\n", user, pw);
+        fflush(stdout);
+        if (len > 0) {
+            ssize_t w = write(STDOUT_FILENO, shown, (size_t)len);
+            (void)w;
+        }
+        secure_zero(shown, sizeof(shown));
+
         printf("(hidden again in %d seconds)\n", REVEAL_SECONDS);
         fflush(stdout);
         sleep(REVEAL_SECONDS);
+        /* move up 3 lines and erase them */
         printf("\033[3A\033[J");
         printf("Credential hidden.\n\n");
 
-        snprintf(log_message, sizeof(log_message), "REVEAL_CREDENTIAL %s %s", owner, site);
-        log_event(log_message);
+        log_event("REVEAL_CREDENTIAL", owner, site);
     }
 
     secure_zero(user, sizeof(user));
@@ -292,7 +377,6 @@ static void update_credential(const char *owner, const unsigned char *key)
     char site[65];
     char user[MAX_FIELD + 1];
     char pw[MAX_FIELD + 1];
-    char log_message[256];
     struct record r;
 
     if (!prompt_site("Site to update: ", site, sizeof(site))) {
@@ -302,6 +386,11 @@ static void update_credential(const char *owner, const unsigned char *key)
         printf("\n\nCredential not found.\n\n");
         return;
     }
+    /* Changing a stored password is high-risk too: re-authenticate first. */
+    if (!reauthenticate(owner)) {
+        return;
+    }
+
     if (!prompt_credential(user, sizeof(user), pw, sizeof(pw))) {
         return;
     }
@@ -316,8 +405,7 @@ static void update_credential(const char *owner, const unsigned char *key)
 
     if (result == 1) {
         printf("\n\nCredential updated.\n\n");
-        snprintf(log_message, sizeof(log_message), "UPDATE_CREDENTIAL %s %s", owner, site);
-        log_event(log_message);
+        log_event("UPDATE_CREDENTIAL", owner, site);
     } else {
         printf("\n\nError updating credential.\n\n");
     }
@@ -326,9 +414,18 @@ static void update_credential(const char *owner, const unsigned char *key)
 static void delete_credential(const char *owner)
 {
     char site[65];
-    char log_message[256];
 
     if (!prompt_site("Site to delete: ", site, sizeof(site))) {
+        return;
+    }
+    if (!find_record(owner, site, NULL)) {
+        printf("\n\nCredential not found.\n\n");
+        return;
+    }
+
+    /* Deleting cannot be undone from inside the program, so it needs the
+     * master password too (a backup is still taken first). */
+    if (!reauthenticate(owner)) {
         return;
     }
 
@@ -336,8 +433,7 @@ static void delete_credential(const char *owner)
 
     if (result == 1) {
         printf("\n\nCredential deleted.\n\n");
-        snprintf(log_message, sizeof(log_message), "DELETE_CREDENTIAL %s %s", owner, site);
-        log_event(log_message);
+        log_event("DELETE_CREDENTIAL", owner, site);
     } else if (result == 0) {
         printf("\n\nCredential not found.\n\n");
     } else {
@@ -347,6 +443,16 @@ static void delete_credential(const char *owner)
 
 void vault_menu(const char *username, const unsigned char *key) 
 {
+    char name[64];
+    time_t last_active = time(NULL);
+    
+    force_logout = 0;
+
+    /* One snapshot per session, taken before anything is changed. */
+    if (vault_name(username, name, sizeof(name), 0) == 0) {
+        backup_file(name);
+    }
+
     while (1) {
         printf("\n=== Vault ===\n");
         printf("1. Add Credential\n");
@@ -358,6 +464,14 @@ void vault_menu(const char *username, const unsigned char *key)
         printf("Choice: ");
 
         int choice = read_choice();
+
+        /* Inactivity logout: a command typed after the allowed idle time is
+         * not run; the user must log in again. */
+        if (time(NULL) - last_active > SESSION_TIMEOUT_SECONDS) {
+            printf("\n\nSession expired after inactivity. Please log in again.\n\n");
+            log_event("SESSION_TIMEOUT", username, NULL);
+            return;
+        }
 
         switch (choice) {
             case 1:
@@ -376,11 +490,16 @@ void vault_menu(const char *username, const unsigned char *key)
                 delete_credential(username);
                 break;
             case 6:
-            case -2:
+            case -2: /* EOF: treat as logout */
                 printf("\n\nLogged out.\n\n");
                 return;
             default:
                 printf("\n\nInvalid option.\n\n");
         }
+
+        if (force_logout) {
+            return;
+        }
+        last_active = time(NULL);
     }
 }
